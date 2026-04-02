@@ -1,3 +1,4 @@
+import json as _json
 from pathlib import Path
 from typing import Optional, Union
 from .apply_diff import write_git_diff, _mutable_ranges, EVOLVE_START, EVOLVE_END
@@ -62,6 +63,36 @@ def apply_full_patch(
         return original, 0, None, error_message, None, None
 
     patch_code = str(extracted_code)
+
+    # JSON genomes: entire file is mutable, skip EVOLVE-BLOCK logic.
+    if language in ("json", "json5"):
+        try:
+            _json.loads(patch_code)
+        except _json.JSONDecodeError as e:
+            error_message = f"Invalid JSON in patch: {e}"
+            return original, 0, None, error_message, None, None
+
+        updated_content = patch_code
+        num_applied = 1
+
+        if patch_dir is not None:
+            patch_dir = Path(patch_dir)
+            patch_dir.mkdir(parents=True, exist_ok=True)
+            (patch_dir / "rewrite.txt").write_text(patch_code, "utf-8")
+            backup_path = patch_dir / f"original{suffix}"
+            backup_path.write_text(original, "utf-8")
+            output_path = patch_dir / f"main{suffix}"
+            output_path.write_text(updated_content, "utf-8")
+            diff_path = patch_dir / "edit.diff"
+            write_git_diff(
+                original, updated_content,
+                filename=backup_path.name, out_path=diff_path,
+            )
+            patch_txt = diff_path.read_text("utf-8")
+            if verbose:
+                logger.info(f"JSON patch applied, diff written to: {diff_path}")
+            return updated_content, num_applied, output_path, None, patch_txt, diff_path
+        return updated_content, num_applied, None, None, None, None
 
     if patch_dir is not None:
         patch_dir = Path(patch_dir)

@@ -25,7 +25,11 @@ DEFAULT_METRICS_ON_ERROR = {
 
 
 def load_program(program_path: str) -> Any:
-    """Loads a Python module dynamically from a given file path."""
+    """Loads a program from a given file path. Supports Python modules and JSON."""
+    if program_path.endswith(".json"):
+        with open(program_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
     spec = importlib.util.spec_from_file_location("program", program_path)
     if spec is None:
         raise ImportError(f"Could not load spec for module at {program_path}")

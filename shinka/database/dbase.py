@@ -476,6 +476,17 @@ class ProgramDatabase:
 
         self.cursor.execute(
             """
+            CREATE TABLE IF NOT EXISTS map_elites_cells (
+                cell_key TEXT PRIMARY KEY,
+                program_id TEXT NOT NULL,
+                FOREIGN KEY (program_id) REFERENCES programs(id)
+                    ON DELETE CASCADE
+            )
+            """
+        )
+
+        self.cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS metadata_store (
                 key TEXT PRIMARY KEY, value TEXT
             )
@@ -2006,21 +2017,31 @@ class ProgramDatabase:
         Update the archive with a new program using the configured selection strategy.
 
         Strategies:
+            - "map_elites": Best program per behavioral cell (quality-diversity)
             - "fitness": Replace the worst program globally (classic approach)
             - "crowding": Replace the most similar program if better (maintains diversity)
         """
-        if (
-            not self.cursor
-            or not self.conn
-            or not hasattr(self.config, "archive_size")
-            or self.config.archive_size <= 0
-        ):
-            logger.debug("Archive update skipped (config/DB issue or size <= 0).")
+        if not self.cursor or not self.conn:
+            logger.debug("Archive update skipped (config/DB issue).")
             return
 
         # Only add correct programs to the archive
         if not program.correct:
             logger.debug(f"Program {program.id} not added to archive (not correct).")
+            return
+
+        strategy = getattr(self.config, "archive_selection_strategy", "fitness")
+
+        # MAP-Elites bypasses archive_size — all occupied cells keep their champion
+        if strategy == "map_elites":
+            self._update_archive_map_elites(program)
+            return
+
+        if (
+            not hasattr(self.config, "archive_size")
+            or self.config.archive_size <= 0
+        ):
+            logger.debug("Archive update skipped (archive_size <= 0).")
             return
 
         self.cursor.execute("SELECT COUNT(*) FROM archive")
@@ -2037,12 +2058,121 @@ class ProgramDatabase:
             return
 
         # Archive is full - use strategy to decide replacement
-        strategy = getattr(self.config, "archive_selection_strategy", "fitness")
-
         if strategy == "crowding":
             self._update_archive_crowding(program)
         else:  # "fitness" - default behavior
             self._update_archive_fitness(program)
+
+    # ------------------------------------------------------------------
+    # MAP-Elites archive strategy
+    # ------------------------------------------------------------------
+
+    def _get_program_by_id(self, program_id: str) -> Optional[Program]:
+        """Fetch a single program by its ID."""
+        if not self.cursor:
+            return None
+        self.cursor.execute("SELECT * FROM programs WHERE id = ?", (program_id,))
+        row = self.cursor.fetchone()
+        if row is None:
+            return None
+        return self._program_from_row(row)
+
+    @staticmethod
+    def _get_cell_key(program: Program) -> Optional[tuple]:
+        """Extract 3D MAP-Elites cell: concept_type x arc_shape x constraint_density."""
+        cell = (program.public_metrics or {}).get("map_elites_cell", {})
+        concept_type = cell.get("concept_type")
+        arc_shape = cell.get("arc_shape")
+        constraint_density = cell.get("constraint_density")
+        if any(d is None for d in (concept_type, arc_shape, constraint_density)):
+            return None
+        return (concept_type, arc_shape, constraint_density)
+
+    def _update_archive_map_elites(self, program: Program) -> None:
+        """MAP-Elites: maintain best program per behavioral cell.
+
+        Uses holder_score (raw Hölder mean, no diversity bonus) for cell
+        replacement — within-cell competition is pure quality.
+        """
+        cell_key = self._get_cell_key(program)
+        if cell_key is None:
+            logger.warning(
+                f"Program {program.id} has no MAP-Elites cell; skipping archive."
+            )
+            return
+
+        holder_score = (program.public_metrics or {}).get("holder_score")
+        if holder_score is None:
+            logger.warning(
+                f"Program {program.id} has no holder_score; skipping archive."
+            )
+            return
+
+        cell_key_str = json.dumps(cell_key)
+
+        self.cursor.execute(
+            "SELECT program_id FROM map_elites_cells WHERE cell_key = ?",
+            (cell_key_str,),
+        )
+        row = self.cursor.fetchone()
+
+        if row is None:
+            # Empty cell — insert unconditionally
+            self.cursor.execute(
+                "INSERT INTO map_elites_cells (cell_key, program_id) VALUES (?, ?)",
+                (cell_key_str, program.id),
+            )
+            self.cursor.execute(
+                "INSERT OR IGNORE INTO archive (program_id) VALUES (?)",
+                (program.id,),
+            )
+            self.conn.commit()
+            logger.info(
+                f"Program {program.id} (holder={holder_score:.4f}) "
+                f"occupies empty cell {cell_key}."
+            )
+        else:
+            occupant_id = row[0]
+            occupant = self._get_program_by_id(occupant_id)
+            if occupant is None:
+                # Stale reference — replace
+                self.cursor.execute(
+                    "UPDATE map_elites_cells SET program_id = ? WHERE cell_key = ?",
+                    (program.id, cell_key_str),
+                )
+                self.cursor.execute(
+                    "INSERT OR IGNORE INTO archive (program_id) VALUES (?)",
+                    (program.id,),
+                )
+                self.conn.commit()
+                return
+
+            occupant_holder = (occupant.public_metrics or {}).get("holder_score", 0)
+            if holder_score > occupant_holder:
+                # New program is better — replace
+                self.cursor.execute(
+                    "DELETE FROM archive WHERE program_id = ?",
+                    (occupant.id,),
+                )
+                self.cursor.execute(
+                    "UPDATE map_elites_cells SET program_id = ? WHERE cell_key = ?",
+                    (program.id, cell_key_str),
+                )
+                self.cursor.execute(
+                    "INSERT OR IGNORE INTO archive (program_id) VALUES (?)",
+                    (program.id,),
+                )
+                self.conn.commit()
+                logger.info(
+                    f"Program {program.id} (holder={holder_score:.4f}) replaced "
+                    f"{occupant.id} (holder={occupant_holder:.4f}) in cell {cell_key}."
+                )
+            else:
+                logger.debug(
+                    f"Program {program.id} (holder={holder_score:.4f}) did not beat "
+                    f"occupant {occupant.id} (holder={occupant_holder:.4f}) "
+                    f"in cell {cell_key}."
+                )
 
     def _update_archive_fitness(self, program: Program) -> None:
         """
