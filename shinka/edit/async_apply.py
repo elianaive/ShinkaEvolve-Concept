@@ -4,6 +4,7 @@ Provides async versions of patch application and validation.
 """
 
 import asyncio
+import json as _json
 import logging
 from typing import Tuple, Optional
 from pathlib import Path
@@ -15,7 +16,18 @@ try:
 except ImportError:
     aiofiles = None
 
+from owtn.prompts.stage_1.registry import OPERATOR_DEFS
+
 logger = logging.getLogger(__name__)
+
+# Derive patch routing from operator metadata so there's a single source of truth.
+# Legacy types ("full", "cross", "diff") kept for backward compatibility.
+_FULL_PATCH_TYPES = {"full", "cross"} | {
+    name for name, d in OPERATOR_DEFS.items() if d["routing"] == "full"
+}
+_DIFF_PATCH_TYPES = {"diff"} | {
+    name for name, d in OPERATOR_DEFS.items() if d["routing"] == "diff"
+}
 
 
 async def _run_validation_subprocess(
@@ -76,9 +88,9 @@ async def apply_patch_async(
             pass
 
         # Choose the appropriate patch function
-        if patch_type in ["full", "cross"]:
+        if patch_type in _FULL_PATCH_TYPES:
             patch_func = apply_full_patch
-        elif patch_type == "diff":
+        elif patch_type in _DIFF_PATCH_TYPES:
             patch_func = apply_diff_patch
         else:
             raise ValueError(f"Unknown patch type: {patch_type}")
@@ -143,12 +155,14 @@ async def validate_code_async(
                 timeout=timeout,
             )
         elif language in ["json", "json5"]:
-            # Use jsonschema for JSON validation
-            return await _run_validation_subprocess(
-                "jsonschema",
-                code_path,
-                timeout=timeout,
-            )
+            try:
+                content = Path(code_path).read_text("utf-8")
+                _json.loads(content)
+                return True, None
+            except _json.JSONDecodeError as e:
+                return False, f"Invalid JSON: {e}"
+            except Exception as e:
+                return False, f"Could not read JSON file: {e}"
         elif language == "cpp":
             # Use g++ for C++ compilation check
             return await _run_validation_subprocess(

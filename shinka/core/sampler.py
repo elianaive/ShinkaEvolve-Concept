@@ -20,6 +20,12 @@ from shinka.prompts import (
 )
 from shinka.prompts.prompts_init import INIT_SYSTEM_MSG, INIT_USER_MSG
 from shinka.defaults import default_patch_type_probs, default_patch_types
+from owtn.prompts.stage_1.registry import (
+    OPERATOR_DEFS,
+    OperatorDef,
+    build_operator_prompt,
+    load_registry,
+)
 import logging
 
 logger = logging.getLogger(__name__)
@@ -36,6 +42,7 @@ class PromptSampler:
         inspiration_sort_order: Literal[
             "ascending", "chronological", "none"
         ] = "ascending",
+        seed_bank=None,
     ):
         if patch_types is None:
             patch_types = default_patch_types()
@@ -58,6 +65,15 @@ class PromptSampler:
         self.context_builder = InspirationContextBuilder(
             sort_order=inspiration_sort_order
         )
+        # Stage 1 concept operator support
+        self.seed_bank = seed_bank
+        self._operator_registry: Optional[dict[str, OperatorDef]] = None
+
+    @property
+    def operator_registry(self) -> dict[str, OperatorDef]:
+        if self._operator_registry is None:
+            self._operator_registry = load_registry()
+        return self._operator_registry
 
     def initial_program_prompt(self) -> Tuple[str, str]:
         """Generate the prompt for the initial program."""
@@ -87,32 +103,75 @@ class PromptSampler:
             sys_msg = self.task_sys_msg
 
         # Sample coding type
-        # Filter out crossover if no inspirations
-        if len(archive_inspirations) == 0 and len(top_k_inspirations) == 0:
-            valid_types = [t for t in self.patch_types if t != "cross"]
+        # Filter out cross-type operators when no inspirations exist
+        has_inspirations = len(archive_inspirations) > 0 or len(top_k_inspirations) > 0
+
+        def _needs_inspiration(t: str) -> bool:
+            if t == "cross":
+                return True
+            op = OPERATOR_DEFS.get(t)
+            return op is not None and op["cross"]
+
+        if not has_inspirations:
+            valid_types = [t for t in self.patch_types if not _needs_inspiration(t)]
             valid_probs = [
                 p
                 for t, p in zip(self.patch_types, self.patch_type_probs)
-                if t != "cross"
+                if not _needs_inspiration(t)
             ]
-            # Renormalize probabilities
             prob_sum = sum(valid_probs)
             if prob_sum > 0:
                 valid_probs = [p / prob_sum for p in valid_probs]
+            elif len(valid_types) > 0:
+                valid_probs = [1.0 / len(valid_types)] * len(valid_types)
             else:
-                # Fallback: uniform distribution if all probs are zero
-                if len(valid_types) > 0:
-                    valid_probs = [1.0 / len(valid_types)] * len(valid_types)
-                else:
-                    # No valid types, fall back to original patch types
-                    valid_types = self.patch_types
-                    valid_probs = self.patch_type_probs
+                valid_types = self.patch_types
+                valid_probs = self.patch_type_probs
             patch_type = np.random.choice(valid_types, p=valid_probs)
         else:
             patch_type = np.random.choice(
                 self.patch_types,
                 p=self.patch_type_probs,
             )
+
+        # --- Concept operator dispatch (Stage 1) ---
+        if patch_type in OPERATOR_DEFS:
+            feedback = ""
+            if self.use_text_feedback:
+                feedback = format_text_feedback_section(parent.text_feedback)
+
+            sys_msg, user_msg = build_operator_prompt(
+                patch_type,
+                registry=self.operator_registry,
+                parent_genome=parent.code,
+                metrics=perf_str(parent.combined_score, parent.public_metrics),
+                feedback=feedback,
+                seed_bank=self.seed_bank,
+            )
+
+            # For cross-type operators, append inspiration context
+            if _needs_inspiration(patch_type) and has_inspirations:
+                user_msg += "\n\n" + get_cross_component(
+                    archive_inspirations,
+                    top_k_inspirations,
+                    language=self.language,
+                )
+
+            # Prepend eval history if available
+            sorted_inspirations = self.context_builder.build_context(
+                archive_inspirations, top_k_inspirations
+            )
+            if len(sorted_inspirations) > 0:
+                eval_history_msg = construct_eval_history_msg(
+                    sorted_inspirations,
+                    language=self.language,
+                    include_text_feedback=self.use_text_feedback,
+                )
+                user_msg = eval_history_msg + "\n" + user_msg
+
+            return sys_msg, user_msg, patch_type
+
+        # --- Legacy patch type dispatch (diff/full/cross) ---
 
         # Add meta-recommendations BEFORE format instructions (if provided)
         if meta_recommendations not in [None, "none"] and patch_type != "cross":
@@ -137,7 +196,6 @@ class PromptSampler:
         if patch_type == "diff":
             sys_msg += DIFF_SYS_FORMAT
         elif patch_type == "full":
-            # Randomly sample from different full rewrite variants
             full_variant_idx = np.random.randint(0, len(FULL_SYS_FORMATS))
             selected_format = FULL_SYS_FORMATS[full_variant_idx]
             sys_msg += selected_format

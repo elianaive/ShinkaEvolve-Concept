@@ -11,11 +11,19 @@ DEFAULT_TASK_SYS_MSG = (
 
 
 def default_patch_types() -> list[str]:
-    return ["diff", "full", "cross"]
+    return [
+        "collision", "noun_list", "thought_experiment", "compost",
+        "crossover", "inversion", "discovery", "compression",
+        "constraint_first", "anti_premise", "real_world_seed",
+    ]
 
 
 def default_patch_type_probs() -> list[float]:
-    return [0.6, 0.3, 0.1]
+    return [
+        0.12, 0.08, 0.10, 0.08,  # collision, noun_list, thought_exp, compost
+        0.10, 0.08, 0.10, 0.06,  # crossover, inversion, discovery, compression
+        0.10, 0.10, 0.08,        # constraint_first, anti_premise, real_world
+    ]
 
 
 def default_llm_models() -> list[str]:
