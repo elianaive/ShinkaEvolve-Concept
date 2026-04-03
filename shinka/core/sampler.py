@@ -20,15 +20,24 @@ from shinka.prompts import (
 )
 from shinka.prompts.prompts_init import INIT_SYSTEM_MSG, INIT_USER_MSG
 from shinka.defaults import default_patch_type_probs, default_patch_types
+from owtn.llm.call_logger import llm_context
 from owtn.prompts.stage_1.registry import (
     OPERATOR_DEFS,
     OperatorDef,
+    TONAL_TARGETS,
     build_operator_prompt,
     load_registry,
 )
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def _set_llm_context(role: str, generation: int, operator: str | None = None) -> None:
+    ctx = {"role": role, "generation": generation}
+    if operator is not None:
+        ctx["operator"] = str(operator)
+    llm_context.set(ctx)
 
 
 class PromptSampler:
@@ -43,6 +52,7 @@ class PromptSampler:
             "ascending", "chronological", "none"
         ] = "ascending",
         seed_bank=None,
+        genesis_ratio: float = 0.0,
     ):
         if patch_types is None:
             patch_types = default_patch_types()
@@ -67,6 +77,7 @@ class PromptSampler:
         )
         # Stage 1 concept operator support
         self.seed_bank = seed_bank
+        self.genesis_ratio = genesis_ratio
         self._operator_registry: Optional[dict[str, OperatorDef]] = None
 
     @property
@@ -134,19 +145,27 @@ class PromptSampler:
                 p=self.patch_type_probs,
             )
 
+        # Decide genesis (fresh concept) vs mutation (evolve parent).
+        is_genesis = self.genesis_ratio > 0 and np.random.random() < self.genesis_ratio
+        role = "genesis" if is_genesis else "mutation"
+        _set_llm_context(role, parent.generation + 1, operator=patch_type)
+
         # --- Concept operator dispatch (Stage 1) ---
         if patch_type in OPERATOR_DEFS:
             feedback = ""
-            if self.use_text_feedback:
+            if not is_genesis and self.use_text_feedback:
                 feedback = format_text_feedback_section(parent.text_feedback)
 
+            tonal_target = str(np.random.choice(TONAL_TARGETS))
             sys_msg, user_msg = build_operator_prompt(
                 patch_type,
                 registry=self.operator_registry,
-                parent_genome=parent.code,
-                metrics=perf_str(parent.combined_score, parent.public_metrics),
+                parent_genome="" if is_genesis else parent.code,
+                metrics="" if is_genesis else perf_str(parent.combined_score, parent.public_metrics),
                 feedback=feedback,
                 seed_bank=self.seed_bank,
+                tonal_steering=tonal_target,
+                is_initial=is_genesis,
             )
 
             # For cross-type operators, append inspiration context
@@ -286,6 +305,8 @@ class PromptSampler:
         Returns:
             Tuple of (system_message, user_message, patch_type="fix")
         """
+        _set_llm_context("fix", incorrect_program.generation + 1)
+
         if self.task_sys_msg is None:
             sys_msg = BASE_SYSTEM_MSG
         else:
