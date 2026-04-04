@@ -2079,14 +2079,13 @@ class ProgramDatabase:
 
     @staticmethod
     def _get_cell_key(program: Program) -> Optional[tuple]:
-        """Extract 3D MAP-Elites cell: concept_type x arc_shape x constraint_density."""
+        """Extract 2D MAP-Elites cell: concept_type x arc_shape."""
         cell = (program.public_metrics or {}).get("map_elites_cell", {})
         concept_type = cell.get("concept_type")
         arc_shape = cell.get("arc_shape")
-        constraint_density = cell.get("constraint_density")
-        if any(d is None for d in (concept_type, arc_shape, constraint_density)):
+        if any(d is None for d in (concept_type, arc_shape)):
             return None
-        return (concept_type, arc_shape, constraint_density)
+        return (concept_type, arc_shape)
 
     def _update_archive_map_elites(self, program: Program) -> None:
         """MAP-Elites: maintain best program per behavioral cell.
