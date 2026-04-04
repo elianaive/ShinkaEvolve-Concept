@@ -25,6 +25,7 @@ from owtn.prompts.stage_1.registry import (
     OPERATOR_DEFS,
     OperatorDef,
     TONAL_TARGETS,
+    build_mutation_feedback,
     build_operator_prompt,
     load_registry,
 )
@@ -154,7 +155,7 @@ class PromptSampler:
         if patch_type in OPERATOR_DEFS:
             feedback = ""
             if not is_genesis and self.use_text_feedback:
-                feedback = format_text_feedback_section(parent.text_feedback)
+                feedback = build_mutation_feedback(parent.text_feedback, parent.public_metrics)
 
             tonal_target = str(np.random.choice(TONAL_TARGETS))
             sys_msg, user_msg = build_operator_prompt(
