@@ -11,13 +11,9 @@ BASE_SYSTEM_MSG = (
 
 
 def perf_str(combined_score: float, public_metrics: Dict[str, float]) -> str:
-    perf_str = f"Combined score to maximize: {combined_score:.2f}\n"
-    for key, value in public_metrics.items():
-        if isinstance(value, float):
-            perf_str += f"{key}: {value:.2f}; "
-        else:
-            perf_str += f"{key}: {value}; "
-    return perf_str[:-2]
+    """Format score for the mutation model. Just the combined score —
+    dimension-level detail is in the compressed judge feedback instead."""
+    return f"Score: {combined_score:.2f}"
 
 
 def format_text_feedback_section(text_feedback) -> str:
