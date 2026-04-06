@@ -3,6 +3,7 @@ import time
 import asyncio
 import shlex
 from dataclasses import dataclass, asdict, field
+from pathlib import Path
 from typing import Optional, Dict, Any, Tuple, Union, List
 from concurrent.futures import ThreadPoolExecutor
 from .local import submit as submit_local, monitor as monitor_local
@@ -104,6 +105,9 @@ class _InlineJobResult:
         self.results_dir = results_dir
         self.pid = 0  # Fake PID for compatibility
         self.returncode = 0
+
+    def __repr__(self):
+        return f"InlineJob({Path(self.results_dir).name})"
 
     def poll(self):
         return 0  # Already done
