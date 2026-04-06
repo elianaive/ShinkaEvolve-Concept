@@ -1592,6 +1592,50 @@ class ProgramDatabase:
         return [p for p in programs if p is not None]
 
     @db_retry()
+    def get_island_champion(
+        self, island_idx: int, exclude_id: Optional[str] = None
+    ) -> Optional[Program]:
+        """Get the best correct program on an island by combined_score.
+
+        Used for pairwise selection: the champion is the concept a new
+        challenger must beat to survive on this island.
+        """
+        if not self.cursor:
+            raise ConnectionError("DB not connected.")
+        query = (
+            "SELECT * FROM programs "
+            "WHERE island_idx = ? AND correct = 1"
+        )
+        params: list = [island_idx]
+        if exclude_id:
+            query += " AND id != ?"
+            params.append(exclude_id)
+        query += " ORDER BY combined_score DESC LIMIT 1"
+        self.cursor.execute(query, params)
+        row = self.cursor.fetchone()
+        if row is None:
+            return None
+        return self._program_from_row(row)
+
+    @db_retry()
+    def update_program_score(
+        self, program_id: str, combined_score: float, text_feedback: str
+    ) -> None:
+        """Update a program's combined_score and text_feedback.
+
+        Used after pairwise comparison to record the result — winners get
+        1.0, losers get 0.0, and text_feedback contains the judges'
+        per-dimension comparison reasoning.
+        """
+        if not self.cursor:
+            raise ConnectionError("DB not connected.")
+        self.cursor.execute(
+            "UPDATE programs SET combined_score = ?, text_feedback = ? WHERE id = ?",
+            (combined_score, text_feedback, program_id),
+        )
+        self.conn.commit()
+
+    @db_retry()
     def get_top_programs(
         self,
         n: int = 10,

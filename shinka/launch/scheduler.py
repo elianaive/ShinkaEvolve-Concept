@@ -7,6 +7,7 @@ from typing import Optional, Dict, Any, Tuple, Union, List
 from concurrent.futures import ThreadPoolExecutor
 from .local import submit as submit_local, monitor as monitor_local
 from .local import ProcessWithLogging
+from shinka.utils.general import load_results
 from .slurm import (
     submit_docker as submit_slurm_docker,
     submit_conda as submit_slurm_conda,
@@ -35,10 +36,16 @@ class JobConfig:
 
     eval_program_path: Optional[str] = "evaluate.py"
     extra_cmd_args: Dict[str, Any] = field(default_factory=dict)
+    # When set, the scheduler calls this function directly instead of
+    # spawning a subprocess. Signature: (program_path, results_dir, **extra_cmd_args) -> None
+    # The function must write correct.json and metrics.json to results_dir.
+    eval_function: Optional[Any] = field(default=None, repr=False)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary representation"""
         job_to_dict = asdict(self)
+        # eval_function is a callable, not serializable
+        job_to_dict.pop("eval_function", None)
         return {k: v for k, v in job_to_dict.items() if v is not None}
 
 
@@ -88,6 +95,24 @@ class SlurmCondaJobConfig(JobConfig):
 
 
 SlurmEnvJobConfig = SlurmCondaJobConfig
+
+
+class _InlineJobResult:
+    """Sentinel for jobs completed via eval_function (no subprocess)."""
+
+    def __init__(self, results_dir: str):
+        self.results_dir = results_dir
+        self.pid = 0  # Fake PID for compatibility
+        self.returncode = 0
+
+    def poll(self):
+        return 0  # Already done
+
+    def wait(self):
+        pass
+
+    def cleanup_logging(self):
+        pass
 
 
 class JobScheduler:
@@ -165,6 +190,20 @@ class JobScheduler:
     def run(
         self, exec_fname_t: str, results_dir_t: str
     ) -> Tuple[Dict[str, Any], float]:
+        # Inline evaluation: call function directly, skip subprocess.
+        if self.config.eval_function is not None:
+            start_time = time.time()
+            self.config.eval_function(
+                program_path=exec_fname_t,
+                results_dir=results_dir_t,
+                **self.config.extra_cmd_args,
+            )
+            rtime = time.time() - start_time
+            results = load_results(results_dir_t)
+            if results is None:
+                results = {"correct": {"correct": False}, "metrics": {}}
+            return results, rtime
+
         job_id: Union[str, ProcessWithLogging]
         cmd = self._build_command(exec_fname_t, results_dir_t)
         start_time = time.time()
@@ -220,9 +259,21 @@ class JobScheduler:
         return results, rtime
 
     def submit_async(
-        self, exec_fname_t: str, results_dir_t: str
-    ) -> Union[str, ProcessWithLogging]:
+        self, exec_fname_t: str, results_dir_t: str,
+        parent_id: Optional[str] = None, island_idx: Optional[int] = None,
+    ) -> Union[str, ProcessWithLogging, _InlineJobResult]:
         """Submit a job asynchronously and return the job ID or process."""
+        # Inline evaluation: run function directly, return completed sentinel.
+        if self.config.eval_function is not None:
+            self.config.eval_function(
+                program_path=exec_fname_t,
+                results_dir=results_dir_t,
+                parent_id=parent_id,
+                island_idx=island_idx,
+                **self.config.extra_cmd_args,
+            )
+            return _InlineJobResult(results_dir_t)
+
         cmd = self._build_command(exec_fname_t, results_dir_t)
         if self.job_type == "local":
             assert isinstance(self.config, LocalJobConfig)
@@ -261,6 +312,8 @@ class JobScheduler:
 
     def check_job_status(self, job) -> bool:
         """Check if job is running. Returns True if running, False if done."""
+        if isinstance(job.job_id, _InlineJobResult):
+            return False  # Inline jobs are always done immediately.
         if self.job_type in ["slurm_docker", "slurm_conda"]:
             from .slurm import get_job_status
 
@@ -315,9 +368,11 @@ class JobScheduler:
             return False
 
     def get_job_results(
-        self, job_id: Union[str, ProcessWithLogging], results_dir: str
+        self, job_id: Union[str, ProcessWithLogging, _InlineJobResult], results_dir: str
     ) -> Optional[Dict[str, Any]]:
         """Get results from a completed job."""
+        if isinstance(job_id, _InlineJobResult):
+            return load_results(job_id.results_dir)
         if self.job_type in ["slurm_docker", "slurm_conda"]:
             if isinstance(job_id, str):
                 return monitor_slurm(job_id, results_dir, verbose=self.verbose)
@@ -333,13 +388,14 @@ class JobScheduler:
         return None
 
     async def submit_async_nonblocking(
-        self, exec_fname_t: str, results_dir_t: str
-    ) -> Union[str, ProcessWithLogging]:
+        self, exec_fname_t: str, results_dir_t: str,
+        parent_id: Optional[str] = None, island_idx: Optional[int] = None,
+    ) -> Union[str, ProcessWithLogging, _InlineJobResult]:
         """Submit a job asynchronously without blocking the event loop."""
         loop = asyncio.get_event_loop()
 
         return await loop.run_in_executor(
-            self.executor, self.submit_async, exec_fname_t, results_dir_t
+            self.executor, self.submit_async, exec_fname_t, results_dir_t, parent_id, island_idx
         )
 
     async def check_job_status_async(self, job) -> bool:
