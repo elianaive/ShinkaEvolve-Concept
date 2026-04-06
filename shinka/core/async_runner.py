@@ -2574,6 +2574,8 @@ class ShinkaEvolveRunner:
                     exec_fname=exec_fname,
                     results_dir=results_dir,
                     sampling_worker_id=sampling_worker_id,
+                    parent_id=parent_program.id if parent_program else None,
+                    island_idx=parent_program.island_idx if parent_program else None,
                 )
 
                 # Create running job
@@ -2847,6 +2849,8 @@ class ShinkaEvolveRunner:
                     meta_patch_data = {
                         "api_costs": total_costs,
                         "patch_type": patch_type,
+                        "affective_register": register_name,
+                        "literary_mode": mode_name,
                         "patch_name": patch_name,
                         "patch_description": patch_description,
                         "num_applied": num_applied,
@@ -2906,6 +2910,8 @@ class ShinkaEvolveRunner:
             meta_patch_data = {
                 "api_costs": total_costs,
                 "patch_type": patch_type,
+                "affective_register": register_name,
+                "literary_mode": mode_name,
                 "patch_name": patch_name,
                 "patch_description": patch_description,
                 "num_applied": 0,
@@ -2949,7 +2955,7 @@ class ShinkaEvolveRunner:
                 self.prompt_sampler.task_sys_msg = current_sys_prompt
 
             # Generate patch prompt
-            patch_sys, patch_msg, patch_type = self.prompt_sampler.sample(
+            patch_sys, patch_msg, patch_type, register_name, mode_name = self.prompt_sampler.sample(
                 parent=parent_program,
                 archive_inspirations=archive_programs,
                 top_k_inspirations=top_k_programs,
@@ -3083,6 +3089,8 @@ class ShinkaEvolveRunner:
                     meta_patch_data = {
                         "api_costs": total_costs,
                         "patch_type": patch_type,
+                        "affective_register": register_name,
+                        "literary_mode": mode_name,
                         "patch_name": patch_name,
                         "patch_description": patch_description,
                         "num_applied": num_applied,
@@ -3135,6 +3143,8 @@ class ShinkaEvolveRunner:
             meta_patch_data = {
                 "api_costs": total_costs,
                 "patch_type": patch_type,
+                "affective_register": register_name,
+                "literary_mode": mode_name,
                 "patch_name": patch_name if "patch_name" in locals() else None,
                 "patch_description": patch_description
                 if "patch_description" in locals()
@@ -3807,6 +3817,8 @@ class ShinkaEvolveRunner:
         exec_fname: str,
         results_dir: str,
         sampling_worker_id: Optional[int],
+        parent_id: Optional[str] = None,
+        island_idx: Optional[int] = None,
     ) -> tuple[Union[str, Any], int, float, float, int]:
         """Reserve an evaluation slot before submitting the evaluation job."""
         if sampling_worker_id is not None:
@@ -3815,7 +3827,7 @@ class ShinkaEvolveRunner:
         evaluation_worker_id = await self.evaluation_slot_pool.acquire()
         try:
             job_id = await self.scheduler.submit_async_nonblocking(
-                exec_fname, results_dir
+                exec_fname, results_dir, parent_id=parent_id, island_idx=island_idx,
             )
         except Exception:
             await self.evaluation_slot_pool.release(evaluation_worker_id)

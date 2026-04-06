@@ -21,10 +21,10 @@ from shinka.prompts import (
 from shinka.prompts.prompts_init import INIT_SYSTEM_MSG, INIT_USER_MSG
 from shinka.defaults import default_patch_type_probs, default_patch_types
 from owtn.llm.call_logger import llm_context
+from owtn.prompts import sample_tonal_steering
 from owtn.prompts.stage_1.registry import (
     OPERATOR_DEFS,
     OperatorDef,
-    TONAL_TARGETS,
     build_mutation_feedback,
     build_operator_prompt,
     load_registry,
@@ -79,6 +79,8 @@ class PromptSampler:
         # Stage 1 concept operator support
         self.seed_bank = seed_bank
         self.genesis_ratio = genesis_ratio
+        self.tonal_inherit_rate = 0.5
+        self.tonal_crossover_new_rate = 0.33
         self._operator_registry: Optional[dict[str, OperatorDef]] = None
 
     @property
@@ -108,7 +110,8 @@ class PromptSampler:
         archive_inspirations: List[Program],
         top_k_inspirations: List[Program],
         meta_recommendations: Optional[str] = None,
-    ) -> Tuple[str, str, str]:
+    ) -> Tuple[str, str, str, Optional[str], Optional[str]]:
+        """Returns (sys_msg, user_msg, patch_type, register_name, mode_name)."""
         if self.task_sys_msg is None:
             sys_msg = BASE_SYSTEM_MSG
         else:
@@ -157,7 +160,23 @@ class PromptSampler:
             if not is_genesis and self.use_text_feedback:
                 feedback = build_mutation_feedback(parent.text_feedback, parent.public_metrics)
 
-            tonal_target = str(np.random.choice(TONAL_TARGETS))
+            # Tonal inheritance: genesis = fresh, mutation = maybe inherit,
+            # crossover = pick from parent A, parent B, or fresh (per dimension).
+            is_crossover = _needs_inspiration(patch_type) and has_inspirations
+            parent_meta = (parent.metadata or {}) if not is_genesis else {}
+            parent2_meta = {}
+            if is_crossover and archive_inspirations:
+                parent2_meta = archive_inspirations[0].metadata or {}
+
+            tonal_text, register_name, mode_name = sample_tonal_steering(
+                parent_register=parent_meta.get("affective_register"),
+                parent_mode=parent_meta.get("literary_mode"),
+                parent2_register=parent2_meta.get("affective_register"),
+                parent2_mode=parent2_meta.get("literary_mode"),
+                is_crossover=is_crossover,
+                inherit_rate=self.tonal_inherit_rate,
+                crossover_new_rate=self.tonal_crossover_new_rate,
+            )
             sys_msg, user_msg = build_operator_prompt(
                 patch_type,
                 registry=self.operator_registry,
@@ -165,7 +184,7 @@ class PromptSampler:
                 metrics="" if is_genesis else perf_str(parent.combined_score, parent.public_metrics),
                 feedback=feedback,
                 seed_bank=self.seed_bank,
-                tonal_steering=tonal_target,
+                tonal_steering=tonal_text,
                 is_initial=is_genesis,
             )
 
@@ -189,7 +208,7 @@ class PromptSampler:
                 )
                 user_msg = eval_history_msg + "\n" + user_msg
 
-            return sys_msg, user_msg, patch_type
+            return sys_msg, user_msg, patch_type, register_name, mode_name
 
         # --- Legacy patch type dispatch (diff/full/cross) ---
 
@@ -284,6 +303,8 @@ class PromptSampler:
             sys_msg,
             eval_history_msg + "\n" + iter_msg,
             patch_type,
+            None,
+            None,
         )
 
     def sample_fix(
