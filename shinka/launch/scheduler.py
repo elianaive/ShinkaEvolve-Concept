@@ -101,13 +101,20 @@ SlurmEnvJobConfig = SlurmCondaJobConfig
 class _InlineJobResult:
     """Sentinel for jobs completed via eval_function (no subprocess)."""
 
+    _counter = 0
+
     def __init__(self, results_dir: str):
+        _InlineJobResult._counter += 1
+        self._id = _InlineJobResult._counter
         self.results_dir = results_dir
         self.pid = 0  # Fake PID for compatibility
         self.returncode = 0
 
     def __repr__(self):
-        return f"InlineJob({Path(self.results_dir).name})"
+        return f"InlineJob-{self._id}"
+
+    def __str__(self):
+        return f"InlineJob-{self._id}"
 
     def poll(self):
         return 0  # Already done
