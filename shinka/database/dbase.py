@@ -1610,7 +1610,7 @@ class ProgramDatabase:
         if exclude_id:
             query += " AND id != ?"
             params.append(exclude_id)
-        query += " ORDER BY combined_score DESC LIMIT 1"
+        query += " ORDER BY combined_score DESC, generation DESC LIMIT 1"
         self.cursor.execute(query, params)
         row = self.cursor.fetchone()
         if row is None:
