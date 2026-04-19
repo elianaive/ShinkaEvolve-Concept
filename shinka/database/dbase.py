@@ -1635,6 +1635,128 @@ class ProgramDatabase:
         )
         self.conn.commit()
 
+    def get_program_private_metrics_threadsafe(self, program_id: str) -> Dict[str, Any]:
+        """Read a program's private_metrics dict. Opens its own connection so
+        it's safe to call from evaluator worker threads.
+        """
+        conn = None
+        try:
+            conn = sqlite3.connect(
+                self.config.db_path, check_same_thread=False, timeout=60.0
+            )
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT private_metrics FROM programs WHERE id = ?", (program_id,)
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return {}
+            try:
+                return json.loads(row["private_metrics"] or "{}")
+            except json.JSONDecodeError:
+                return {}
+        finally:
+            if conn:
+                conn.close()
+
+    def set_parent_brief_threadsafe(
+        self,
+        program_id: str,
+        brief_payload: Dict[str, Any],
+        brief_rendered: str,
+    ) -> None:
+        """Update `parent_brief_cache` and `parent_brief_rendered` keys on a
+        program's private_metrics. Used by OWTN's eval worker to refresh a
+        defended champion's brief after appending a new defense critique —
+        see `lab/issues/2026-04-19-parent-brief-precompute-race.md`.
+        """
+        conn = None
+        try:
+            conn = sqlite3.connect(
+                self.config.db_path, check_same_thread=False, timeout=60.0
+            )
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT private_metrics FROM programs WHERE id = ?", (program_id,)
+            )
+            row = cursor.fetchone()
+            if row is None:
+                logger.warning(
+                    "set_parent_brief_threadsafe: no program with id=%s",
+                    program_id,
+                )
+                return
+            try:
+                pm = json.loads(row["private_metrics"] or "{}")
+            except json.JSONDecodeError:
+                pm = {}
+            pm["parent_brief_cache"] = brief_payload
+            pm["parent_brief_rendered"] = brief_rendered
+            cursor.execute(
+                "UPDATE programs SET private_metrics = ? WHERE id = ?",
+                (json.dumps(pm), program_id),
+            )
+            conn.commit()
+        except Exception as e:
+            logger.error(
+                "set_parent_brief_threadsafe failed for id=%s: %s",
+                program_id, e,
+            )
+        finally:
+            if conn:
+                conn.close()
+
+    def append_match_critique_threadsafe(
+        self, program_id: str, critique: Dict[str, Any]
+    ) -> None:
+        """Append a MatchCritique dict to a program's private_metrics.
+
+        Opens its own sqlite connection (`check_same_thread=False`) so it can
+        be called from evaluator worker threads without touching the main
+        ProgramDatabase cursor. Used by OWTN's pairwise evaluator to record
+        each match from both concepts' perspectives — see
+        `lab/issues/2026-04-18-lazy-feedback-summarizer.md`.
+        """
+        conn = None
+        try:
+            conn = sqlite3.connect(
+                self.config.db_path, check_same_thread=False, timeout=60.0
+            )
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT private_metrics FROM programs WHERE id = ?", (program_id,)
+            )
+            row = cursor.fetchone()
+            if row is None:
+                logger.warning(
+                    "append_match_critique_threadsafe: no program with id=%s",
+                    program_id,
+                )
+                return
+            try:
+                pm = json.loads(row["private_metrics"] or "{}")
+            except json.JSONDecodeError:
+                pm = {}
+            critiques = pm.get("match_critiques") or []
+            critiques.append(critique)
+            pm["match_critiques"] = critiques
+            cursor.execute(
+                "UPDATE programs SET private_metrics = ? WHERE id = ?",
+                (json.dumps(pm), program_id),
+            )
+            conn.commit()
+        except Exception as e:
+            logger.error(
+                "append_match_critique_threadsafe failed for id=%s: %s",
+                program_id, e,
+            )
+        finally:
+            if conn:
+                conn.close()
+
     @db_retry()
     def get_top_programs(
         self,

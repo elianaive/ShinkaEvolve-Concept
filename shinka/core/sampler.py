@@ -158,7 +158,11 @@ class PromptSampler:
         if patch_type in OPERATOR_DEFS:
             feedback = ""
             if not is_genesis and self.use_text_feedback:
-                feedback = build_mutation_feedback(parent.text_feedback, parent.public_metrics)
+                feedback = build_mutation_feedback(
+                    parent.text_feedback,
+                    parent.public_metrics,
+                    parent.private_metrics,
+                )
 
             # Tonal inheritance: genesis = fresh, mutation = maybe inherit,
             # crossover = pick from parent A, parent B, or fresh (per dimension).
@@ -177,11 +181,17 @@ class PromptSampler:
                 inherit_rate=self.tonal_inherit_rate,
                 crossover_new_rate=self.tonal_crossover_new_rate,
             )
+            # OWTN intentionally drops the parent score and per-inspiration
+            # feedback from the mutation prompt. The numerical score is not a
+            # gradient signal under pairwise selection, and inspiration
+            # text_feedback leaks old-format per-dim judge reasoning that
+            # conflicts with the parent's curated ParentBrief. See
+            # lab/issues/2026-04-18-lazy-feedback-summarizer.md.
             sys_msg, user_msg = build_operator_prompt(
                 patch_type,
                 registry=self.operator_registry,
                 parent_genome="" if is_genesis else parent.code,
-                metrics="" if is_genesis else perf_str(parent.combined_score, parent.public_metrics),
+                metrics="",
                 feedback=feedback,
                 seed_bank=self.seed_bank,
                 tonal_steering=tonal_text,
@@ -204,7 +214,8 @@ class PromptSampler:
                 eval_history_msg = construct_eval_history_msg(
                     sorted_inspirations,
                     language=self.language,
-                    include_text_feedback=self.use_text_feedback,
+                    include_text_feedback=False,
+                    include_score=False,
                 )
                 user_msg = eval_history_msg + "\n" + user_msg
 
