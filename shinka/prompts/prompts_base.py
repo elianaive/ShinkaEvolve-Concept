@@ -37,17 +37,23 @@ def construct_eval_history_msg(
     language: str = "python",
     include_text_feedback: bool = False,
     correct: bool = True,
+    include_score: bool = False,
 ) -> str:
     """Construct an edit message for the given parent program and
     inspiration programs."""
     if correct:
-        inspiration_str = (
-            "Here are the performance metrics of a set of prioviously "
-            "implemented programs:\n\n"
-        )
+        if include_score:
+            inspiration_str = (
+                "Here are the performance metrics of a set of previously "
+                "implemented programs:\n\n"
+            )
+        else:
+            inspiration_str = (
+                "Here are some previously implemented programs for inspiration:\n\n"
+            )
     else:
         inspiration_str = (
-            "Here are the error output of a set of prioviously "
+            "Here are the error output of a set of previously "
             "implemented but incorrect programs:\n\n"
         )
 
@@ -56,14 +62,14 @@ def construct_eval_history_msg(
             inspiration_str += "# Prior programs\n\n"
         inspiration_str += f"```{language}\n{prog.code}\n```\n\n"
 
-        if correct:
+        if not correct:
+            inspiration_str += (
+                "The program is incorrect and does not pass all validation tests.\n\n"
+            )
+        elif include_score:
             inspiration_str += (
                 f"Performance metrics:\n"
                 f"{perf_str(prog.combined_score, prog.public_metrics)}\n\n"
-            )
-        else:
-            inspiration_str += (
-                "The program is incorrect and does not pass all validation tests.\n\n"
             )
 
         # Add text feedback if available and requested
