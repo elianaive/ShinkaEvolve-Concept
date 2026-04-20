@@ -54,6 +54,7 @@ class PromptSampler:
         ] = "ascending",
         seed_bank=None,
         genesis_ratio: float = 0.0,
+        prompt: str = "",
     ):
         if patch_types is None:
             patch_types = default_patch_types()
@@ -81,6 +82,7 @@ class PromptSampler:
         self.genesis_ratio = genesis_ratio
         self.tonal_inherit_rate = 0.5
         self.tonal_crossover_new_rate = 0.33
+        self.prompt = prompt
         self._operator_registry: Optional[dict[str, OperatorDef]] = None
 
     @property
@@ -194,6 +196,7 @@ class PromptSampler:
                 metrics="",
                 feedback=feedback,
                 seed_bank=self.seed_bank,
+                prompt=self.prompt,
                 tonal_steering=tonal_text,
                 is_initial=is_genesis,
             )
