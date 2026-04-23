@@ -586,12 +586,18 @@ def apply_search_replace(
     patch_text: str,
     original: str,
     strict: bool = True,
+    language: str = "python",
 ) -> tuple[str, int]:
     """
     Apply SEARCH/REPLACE blocks but **only** inside EVOLVE regions.
     Mutable ranges are recalculated after each replacement to account for
     text changes.
+
+    JSON genomes have no EVOLVE-BLOCK markers — the whole document is
+    the genome — so for `language in ("json", "json5")` the entire text
+    is treated as mutable. This mirrors apply_full_patch's JSON carve-out.
     """
+    json_mode = language in ("json", "json5")
     new_text = original
     num_applied = 0
     for block in PATCH_PATTERN.finditer(patch_text):
@@ -605,7 +611,9 @@ def apply_search_replace(
         replace = _strip_trailing_whitespace(replace)
 
         # Recalculate mutable ranges based on current text state
-        mutable = _mutable_ranges(new_text)
+        mutable = (
+            [(0, len(new_text))] if json_mode else _mutable_ranges(new_text)
+        )
 
         # ── insertions ───────────────────────────────────────────────────────
         if not search.strip():  # empty SEARCH  → insertion
@@ -730,7 +738,9 @@ def apply_diff_patch(
 
     try:
         # Apply the patch
-        applied_content, patches_count = apply_search_replace(patch_str, original)
+        applied_content, patches_count = apply_search_replace(
+            patch_str, original, language=language
+        )
         updated_content = applied_content
         num_applied = patches_count
     except PatchError as e:
