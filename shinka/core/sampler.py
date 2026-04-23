@@ -27,6 +27,7 @@ from owtn.prompts.stage_1.registry import (
     OperatorDef,
     build_mutation_feedback,
     build_operator_prompt,
+    is_genesis_eligible,
     load_registry,
 )
 import logging
@@ -119,8 +120,16 @@ class PromptSampler:
         else:
             sys_msg = self.task_sys_msg
 
-        # Sample coding type
-        # Filter out cross-type operators when no inspirations exist
+        # Decide genesis (fresh concept) vs mutation (evolve parent). Rolled
+        # before operator selection so genesis-only filtering can apply.
+        is_genesis = self.genesis_ratio > 0 and np.random.random() < self.genesis_ratio
+
+        # Filter operator pool:
+        #   - genesis mode: drop operators not marked genesis=True in registry
+        #     (e.g. inversion's diff routing needs a parent; compost/crossover
+        #     require archive inspirations with no cold-start seed path).
+        #   - mutation mode with no inspirations: drop cross-type operators
+        #     (they need a second parent).
         has_inspirations = len(archive_inspirations) > 0 or len(top_k_inspirations) > 0
 
         def _needs_inspiration(t: str) -> bool:
@@ -129,30 +138,27 @@ class PromptSampler:
             op = OPERATOR_DEFS.get(t)
             return op is not None and op["cross"]
 
-        if not has_inspirations:
-            valid_types = [t for t in self.patch_types if not _needs_inspiration(t)]
-            valid_probs = [
-                p
-                for t, p in zip(self.patch_types, self.patch_type_probs)
-                if not _needs_inspiration(t)
-            ]
-            prob_sum = sum(valid_probs)
-            if prob_sum > 0:
-                valid_probs = [p / prob_sum for p in valid_probs]
-            elif len(valid_types) > 0:
-                valid_probs = [1.0 / len(valid_types)] * len(valid_types)
-            else:
-                valid_types = self.patch_types
-                valid_probs = self.patch_type_probs
-            patch_type = np.random.choice(valid_types, p=valid_probs)
-        else:
-            patch_type = np.random.choice(
-                self.patch_types,
-                p=self.patch_type_probs,
-            )
+        def _is_valid(t: str) -> bool:
+            if is_genesis and not is_genesis_eligible(t):
+                return False
+            if not is_genesis and not has_inspirations and _needs_inspiration(t):
+                return False
+            return True
 
-        # Decide genesis (fresh concept) vs mutation (evolve parent).
-        is_genesis = self.genesis_ratio > 0 and np.random.random() < self.genesis_ratio
+        valid_types = [t for t in self.patch_types if _is_valid(t)]
+        valid_probs = [
+            p for t, p in zip(self.patch_types, self.patch_type_probs) if _is_valid(t)
+        ]
+        prob_sum = sum(valid_probs)
+        if prob_sum > 0:
+            valid_probs = [p / prob_sum for p in valid_probs]
+        elif len(valid_types) > 0:
+            valid_probs = [1.0 / len(valid_types)] * len(valid_types)
+        else:
+            valid_types = self.patch_types
+            valid_probs = self.patch_type_probs
+        patch_type = np.random.choice(valid_types, p=valid_probs)
+
         role = "genesis" if is_genesis else "mutation"
         _set_llm_context(role, parent.generation + 1, operator=patch_type)
 
