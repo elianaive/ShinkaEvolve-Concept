@@ -28,6 +28,7 @@ class LLMClient:
         top_p: Optional[float] = None,
         top_k: Optional[int] = None,
         min_p: Optional[float] = None,
+        thinking_tokens: Optional[int] = None,
     ):
         self.temperatures = temperatures
         self.max_tokens = max_tokens
@@ -42,6 +43,7 @@ class LLMClient:
         self.top_p = top_p
         self.top_k = top_k
         self.min_p = min_p
+        self.thinking_tokens = thinking_tokens
 
     def batch_query(
         self,
@@ -239,6 +241,7 @@ class LLMClient:
             top_p=self.top_p,
             top_k=self.top_k,
             min_p=self.min_p,
+            thinking_tokens=self.thinking_tokens,
         )
 
     def query(
@@ -280,6 +283,7 @@ class LLMClient:
                 top_p=self.top_p,
                 top_k=self.top_k,
                 min_p=self.min_p,
+                thinking_tokens=self.thinking_tokens,
             )
         elif "model_name" not in llm_kwargs:
             # llm_kwargs provided but missing model_name - sample one and merge
@@ -292,6 +296,7 @@ class LLMClient:
                 top_p=self.top_p,
                 top_k=self.top_k,
                 min_p=self.min_p,
+                thinking_tokens=self.thinking_tokens,
             )
             # Merge: provided kwargs override sampled ones, but add model_name
             llm_kwargs = {**sampled_kwargs, **llm_kwargs}
@@ -338,6 +343,7 @@ class AsyncLLMClient:
         top_p: Optional[float] = None,
         top_k: Optional[int] = None,
         min_p: Optional[float] = None,
+        thinking_tokens: Optional[int] = None,
     ):
         self.temperatures = temperatures
         self.max_tokens = max_tokens
@@ -352,6 +358,7 @@ class AsyncLLMClient:
         self.top_p = top_p
         self.top_k = top_k
         self.min_p = min_p
+        self.thinking_tokens = thinking_tokens
 
     async def batch_query(
         self,
@@ -526,6 +533,7 @@ class AsyncLLMClient:
             top_p=self.top_p,
             top_k=self.top_k,
             min_p=self.min_p,
+            thinking_tokens=self.thinking_tokens,
         )
 
     async def query(
@@ -567,6 +575,7 @@ class AsyncLLMClient:
                 top_p=self.top_p,
                 top_k=self.top_k,
                 min_p=self.min_p,
+                thinking_tokens=self.thinking_tokens,
             )
         elif "model_name" not in llm_kwargs:
             # llm_kwargs provided but missing model_name - sample one and merge
@@ -579,6 +588,7 @@ class AsyncLLMClient:
                 top_p=self.top_p,
                 top_k=self.top_k,
                 min_p=self.min_p,
+                thinking_tokens=self.thinking_tokens,
             )
             # Merge: provided kwargs override sampled ones, but add model_name
             llm_kwargs = {**sampled_kwargs, **llm_kwargs}
@@ -663,6 +673,7 @@ class AsyncLLMClient:
             top_p=self.top_p,
             top_k=self.top_k,
             min_p=self.min_p,
+            thinking_tokens=self.thinking_tokens,
         )
 
         # Create model_posteriors dict from model_names and model_sample_probs
