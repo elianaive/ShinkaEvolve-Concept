@@ -1660,16 +1660,16 @@ class ProgramDatabase:
             if conn:
                 conn.close()
 
-    def set_parent_brief_threadsafe(
+    def set_lineage_brief_threadsafe(
         self,
         program_id: str,
         brief_payload: Dict[str, Any],
         brief_rendered: str,
     ) -> None:
-        """Update `parent_brief_cache` and `parent_brief_rendered` keys on a
+        """Update `lineage_brief_cache` and `lineage_brief_rendered` keys on a
         program's private_metrics. Used by OWTN's eval worker to refresh a
         defended champion's brief after appending a new defense critique —
-        see `lab/issues/2026-04-19-parent-brief-precompute-race.md`.
+        see `lab/issues/closed/2026-04-19-parent-brief-precompute-race.md`.
         """
         conn = None
         try:
@@ -1684,7 +1684,7 @@ class ProgramDatabase:
             row = cursor.fetchone()
             if row is None:
                 logger.warning(
-                    "set_parent_brief_threadsafe: no program with id=%s",
+                    "set_lineage_brief_threadsafe: no program with id=%s",
                     program_id,
                 )
                 return
@@ -1692,8 +1692,8 @@ class ProgramDatabase:
                 pm = json.loads(row["private_metrics"] or "{}")
             except json.JSONDecodeError:
                 pm = {}
-            pm["parent_brief_cache"] = brief_payload
-            pm["parent_brief_rendered"] = brief_rendered
+            pm["lineage_brief_cache"] = brief_payload
+            pm["lineage_brief_rendered"] = brief_rendered
             cursor.execute(
                 "UPDATE programs SET private_metrics = ? WHERE id = ?",
                 (json.dumps(pm), program_id),
@@ -1701,7 +1701,7 @@ class ProgramDatabase:
             conn.commit()
         except Exception as e:
             logger.error(
-                "set_parent_brief_threadsafe failed for id=%s: %s",
+                "set_lineage_brief_threadsafe failed for id=%s: %s",
                 program_id, e,
             )
         finally:
