@@ -25,6 +25,9 @@ class LLMClient:
         model_sample_probs: Optional[List[float]] = None,
         output_model: Optional[BaseModel] = None,
         verbose: bool = True,
+        top_p: Optional[float] = None,
+        top_k: Optional[int] = None,
+        min_p: Optional[float] = None,
     ):
         self.temperatures = temperatures
         self.max_tokens = max_tokens
@@ -36,6 +39,9 @@ class LLMClient:
         self.output_model = output_model
         self.structured_output = output_model is not None
         self.verbose = verbose
+        self.top_p = top_p
+        self.top_k = top_k
+        self.min_p = min_p
 
     def batch_query(
         self,
@@ -230,6 +236,9 @@ class LLMClient:
             max_tokens=self.max_tokens,
             reasoning_efforts=self.reasoning_efforts,
             model_sample_probs=posterior,
+            top_p=self.top_p,
+            top_k=self.top_k,
+            min_p=self.min_p,
         )
 
     def query(
@@ -268,6 +277,9 @@ class LLMClient:
                 max_tokens=self.max_tokens,
                 reasoning_efforts=self.reasoning_efforts,
                 model_sample_probs=posterior,
+                top_p=self.top_p,
+                top_k=self.top_k,
+                min_p=self.min_p,
             )
         elif "model_name" not in llm_kwargs:
             # llm_kwargs provided but missing model_name - sample one and merge
@@ -277,6 +289,9 @@ class LLMClient:
                 max_tokens=self.max_tokens,
                 reasoning_efforts=self.reasoning_efforts,
                 model_sample_probs=posterior,
+                top_p=self.top_p,
+                top_k=self.top_k,
+                min_p=self.min_p,
             )
             # Merge: provided kwargs override sampled ones, but add model_name
             llm_kwargs = {**sampled_kwargs, **llm_kwargs}
@@ -320,6 +335,9 @@ class AsyncLLMClient:
         model_sample_probs: Optional[List[float]] = None,
         output_model: Optional[BaseModel] = None,
         verbose: bool = True,
+        top_p: Optional[float] = None,
+        top_k: Optional[int] = None,
+        min_p: Optional[float] = None,
     ):
         self.temperatures = temperatures
         self.max_tokens = max_tokens
@@ -331,6 +349,9 @@ class AsyncLLMClient:
         self.output_model = output_model
         self.structured_output = output_model is not None
         self.verbose = verbose
+        self.top_p = top_p
+        self.top_k = top_k
+        self.min_p = min_p
 
     async def batch_query(
         self,
@@ -502,6 +523,9 @@ class AsyncLLMClient:
             max_tokens=self.max_tokens,
             reasoning_efforts=self.reasoning_efforts,
             model_sample_probs=posterior,
+            top_p=self.top_p,
+            top_k=self.top_k,
+            min_p=self.min_p,
         )
 
     async def query(
@@ -540,6 +564,9 @@ class AsyncLLMClient:
                 max_tokens=self.max_tokens,
                 reasoning_efforts=self.reasoning_efforts,
                 model_sample_probs=posterior,
+                top_p=self.top_p,
+                top_k=self.top_k,
+                min_p=self.min_p,
             )
         elif "model_name" not in llm_kwargs:
             # llm_kwargs provided but missing model_name - sample one and merge
@@ -549,6 +576,9 @@ class AsyncLLMClient:
                 max_tokens=self.max_tokens,
                 reasoning_efforts=self.reasoning_efforts,
                 model_sample_probs=posterior,
+                top_p=self.top_p,
+                top_k=self.top_k,
+                min_p=self.min_p,
             )
             # Merge: provided kwargs override sampled ones, but add model_name
             llm_kwargs = {**sampled_kwargs, **llm_kwargs}
@@ -630,6 +660,9 @@ class AsyncLLMClient:
             max_tokens=self.max_tokens,
             reasoning_efforts=self.reasoning_efforts,
             model_sample_probs=model_sample_probs,
+            top_p=self.top_p,
+            top_k=self.top_k,
+            min_p=self.min_p,
         )
 
         # Create model_posteriors dict from model_names and model_sample_probs
