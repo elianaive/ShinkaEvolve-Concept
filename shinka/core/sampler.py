@@ -35,10 +35,20 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def _set_llm_context(role: str, generation: int, operator: str | None = None) -> None:
+def _set_llm_context(
+    role: str,
+    generation: int,
+    operator: str | None = None,
+    parent_code: str | None = None,
+) -> None:
     ctx = {"role": role, "generation": generation}
     if operator is not None:
         ctx["operator"] = str(operator)
+    # parent_code lets the self-critic wrapper reconstruct the resulting
+    # genome for diff-routed operators (e.g. inversion) — apply the diff
+    # against this parent before showing the critic.
+    if parent_code is not None:
+        ctx["parent_code"] = parent_code
     llm_context.set(ctx)
 
 
@@ -85,6 +95,13 @@ class PromptSampler:
         self.tonal_crossover_new_rate = 0.33
         self.prompt = prompt
         self._operator_registry: Optional[dict[str, OperatorDef]] = None
+        # Run-wide population brief, refreshed end-of-generation by the
+        # runner. Split into two blocks: context goes in the middle of the
+        # mutation prompt; exploration_directions go at both top and end of
+        # the user message (instruction sandwich). Empty string = no signal
+        # this generation.
+        self.population_context: str = ""
+        self.exploration_directions: str = ""
 
     @property
     def operator_registry(self) -> dict[str, OperatorDef]:
@@ -160,7 +177,12 @@ class PromptSampler:
         patch_type = np.random.choice(valid_types, p=valid_probs)
 
         role = "genesis" if is_genesis else "mutation"
-        _set_llm_context(role, parent.generation + 1, operator=patch_type)
+        _set_llm_context(
+            role,
+            parent.generation + 1,
+            operator=patch_type,
+            parent_code=None if is_genesis else parent.code,
+        )
 
         # --- Concept operator dispatch (Stage 1) ---
         if patch_type in OPERATOR_DEFS:
@@ -193,8 +215,8 @@ class PromptSampler:
             # feedback from the mutation prompt. The numerical score is not a
             # gradient signal under pairwise selection, and inspiration
             # text_feedback leaks old-format per-dim judge reasoning that
-            # conflicts with the parent's curated ParentBrief. See
-            # lab/issues/2026-04-18-lazy-feedback-summarizer.md.
+            # conflicts with the parent's curated LineageBrief. See
+            # lab/issues/closed/2026-04-18-lazy-feedback-summarizer.md.
             sys_msg, user_msg = build_operator_prompt(
                 patch_type,
                 registry=self.operator_registry,
@@ -205,6 +227,10 @@ class PromptSampler:
                 prompt=self.prompt,
                 tonal_steering=tonal_text,
                 is_initial=is_genesis,
+                population_context=self.population_context if not is_genesis else "",
+                exploration_directions=(
+                    self.exploration_directions if not is_genesis else ""
+                ),
             )
 
             # For cross-type operators, append inspiration context
