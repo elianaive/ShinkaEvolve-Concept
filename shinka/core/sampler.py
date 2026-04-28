@@ -95,6 +95,12 @@ class PromptSampler:
         self.tonal_crossover_new_rate = 0.33
         self.prompt = prompt
         self._operator_registry: Optional[dict[str, OperatorDef]] = None
+        # Seed-sampling state. The runner owns these fields (it sets them
+        # after instantiation) — we don't pass them through __init__ so the
+        # default uniform behavior remains a no-op for upstream callers.
+        # `used_seed_ids` is the per-run set mutated by inject_seed.
+        self.seed_sampling_strategy: str = "uniform"
+        self.used_seed_ids: Optional[set[str]] = None
         # Run-wide population brief, refreshed end-of-generation by the
         # runner. Split into two blocks: context goes in the middle of the
         # mutation prompt; exploration_directions go at both top and end of
@@ -224,6 +230,8 @@ class PromptSampler:
                 metrics="",
                 feedback=feedback,
                 seed_bank=self.seed_bank,
+                used_seed_ids=self.used_seed_ids,
+                sampling_strategy=self.seed_sampling_strategy,
                 prompt=self.prompt,
                 tonal_steering=tonal_text,
                 is_initial=is_genesis,
