@@ -31,7 +31,6 @@ dependencies = [
     "pydantic",
     "backoff",
     "python-dotenv",
-    "instructor",
     "python-Levenshtein",
     "radon",
     "unidiff",

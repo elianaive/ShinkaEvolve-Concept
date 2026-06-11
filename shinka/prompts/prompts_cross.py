@@ -68,6 +68,8 @@ def get_cross_component(
 
     crossover_inspiration = "# Crossover Inspiration Programs\n"
     crossover_inspiration += f"```{language}\n{inspiration.code}\n```\n\n"
-    crossover_inspiration += f"Performance metrics: {perf_str(inspiration.combined_score, inspiration.public_metrics)}\n\n"
+    # Score line intentionally omitted: pairwise initial-champion scores are
+    # placeholders (0.50) that tell the generator nothing useful and bias it
+    # toward chasing a leaderboard it can't see.
 
     return crossover_inspiration
