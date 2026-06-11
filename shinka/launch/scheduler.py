@@ -199,14 +199,21 @@ class JobScheduler:
         return python_cmd
 
     def run(
-        self, exec_fname_t: str, results_dir_t: str
+        self, exec_fname_t: str, results_dir_t: str,
+        parent_id: Optional[str] = None, island_idx: Optional[int] = None,
     ) -> Tuple[Dict[str, Any], float]:
         # Inline evaluation: call function directly, skip subprocess.
+        # `parent_id` and `island_idx` mirror `submit_async` — eval functions
+        # that need per-island state (champion locks, lineage briefs) get the
+        # same shape on both code paths. Defaults preserve back-compat for
+        # subprocess-based evals that don't need them.
         if self.config.eval_function is not None:
             start_time = time.time()
             self.config.eval_function(
                 program_path=exec_fname_t,
                 results_dir=results_dir_t,
+                parent_id=parent_id,
+                island_idx=island_idx,
                 **self.config.extra_cmd_args,
             )
             rtime = time.time() - start_time
